@@ -1,0 +1,52 @@
+{
+  "summary": {
+    "total_tests": 4,
+    "passed_tests": 0,
+    "failed_tests": 4,
+    "success_rate": 0.0
+  },
+  "by_category": {
+    "Imports": {
+      "passed": 0,
+      "total": 4,
+      "success_rate": 0.0,
+      "details": {
+        "graph.models.nodes": false,
+        "graph.models.edges": false,
+        "graph.models.graph_schema": false,
+        "graph.pipeline.preprocessing": false
+      }
+    },
+    "NodeModels": {
+      "passed": 0,
+      "total": 0,
+      "success_rate": 0,
+      "details": {}
+    },
+    "EdgeModels": {
+      "passed": 0,
+      "total": 0,
+      "success_rate": 0,
+      "details": {}
+    },
+    "GraphSchema": {
+      "passed": 0,
+      "total": 0,
+      "success_rate": 0,
+      "details": {}
+    },
+    "Preprocessing": {
+      "passed": 0,
+      "total": 0,
+      "success_rate": 0,
+      "details": {}
+    },
+    "Integration": {
+      "passed": 0,
+      "total": 0,
+      "success_rate": 0,
+      "details": {}
+    }
+  },
+  "timestamp": "2025-09-22T13:44:39.531749"
+}
