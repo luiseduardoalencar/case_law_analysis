@@ -1,0 +1,99 @@
+# Ambiente
+.env
+venv/
+env/
+ENV/
+.venv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Dados gerados - GRAFOS
+data/graph/
+data/graph/exports/
+data/graph/metrics/
+data/graph/visualizations/
+data/embeddings/
+
+# Logs
+data/logs/
+*.log
+logs/
+
+# Dados processados
+data/raw/
+data/processed/
+data/interim/
+
+# Arquivos grandes
+*.csv
+*.json
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.parquet
+
+# Visualizações
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.svg
+
+# Modelos salvos
+models/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Cache
+.cache/
+*.cache
+
+# Temporários
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Banco de dados local
+*.db
+*.sqlite
+*.sqlite3
+
+# Documentos gerados
+docs/_build/
+site/

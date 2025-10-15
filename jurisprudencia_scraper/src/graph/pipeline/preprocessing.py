@@ -8,6 +8,7 @@ import re
 import html
 import unicodedata
 from typing import Dict, List, Optional, Tuple, Any
+from graph.models.nodes import DocumentNode, create_document_node_from_db_row, NodeType  
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -538,6 +539,7 @@ class JurisprudenciaPreprocessor:
         # Cria DocumentNode
         doc_node = DocumentNode(
             id=f"doc_{row['numero_processo']}",
+            node_type=NodeType.DOCUMENT, 
             numero_processo=row['numero_processo'],
             url_original=row['url_original'],
             label=f"Processo {row['numero_processo']}",
@@ -563,7 +565,6 @@ class JurisprudenciaPreprocessor:
             num_tokens=len(clean_text.split()),
             num_secoes=row.get('num_secoes', 0),
             
-            created_at=row.get('created_at', datetime.now())
         )
         
         return doc_node

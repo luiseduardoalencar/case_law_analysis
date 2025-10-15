@@ -13,17 +13,17 @@ import numpy as np
 
 class EdgeType(Enum):
     """Tipos de arestas do grafo heterogêneo"""
-    SIMILARITY = "similarity"          # Doc<->Doc, Seção<->Seção (cossenos)
-    RELEVANCE = "relevance"           # Doc<->Conceito (TF-IDF)
-    COOCCURRENCE = "cooccurrence"     # Conceito<->Conceito (PMI)
-    HIERARCHICAL = "hierarchical"     # Doc<->Seção, Seção<->Entidade
+    SIMILARITY = "similarity"
+    RELEVANCE = "relevance"
+    COOCCURRENCE = "cooccurrence"
+    HIERARCHICAL = "hierarchical"
 
 
 class SimilarityType(Enum):
     """Subtipos de similaridade"""
-    DOCUMENT_SEMANTIC = "document_semantic"      # Doc<->Doc semântica
-    SECTION_CONTENT = "section_content"          # Seção<->Seção conteúdo
-    ENTITY_CONTEXT = "entity_context"            # Entidade<->Entidade contexto
+    DOCUMENT_SEMANTIC = "document_semantic"
+    SECTION_CONTENT = "section_content"
+    ENTITY_CONTEXT = "entity_context"
 
 
 @dataclass
@@ -34,8 +34,6 @@ class BaseEdge:
     target_node_id: str
     edge_type: EdgeType
     weight: float
-    created_at: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         # Garante que o peso está no range válido para o tipo de aresta
@@ -53,29 +51,33 @@ class BaseEdge:
     
     def to_dict(self) -> Dict[str, Any]:
         """Converte a aresta para dicionário"""
-        return {
+        base_dict = {
             'id': self.id,
             'source': self.source_node_id,
             'target': self.target_node_id,
             'edge_type': self.edge_type.value,
             'weight': self.weight,
-            'created_at': self.created_at.isoformat(),
-            'metadata': self.metadata
         }
+        # Adiciona created_at e metadata se existirem
+        if hasattr(self, 'created_at'):
+            base_dict['created_at'] = self.created_at.isoformat()
+        if hasattr(self, 'metadata'):
+            base_dict['metadata'] = self.metadata
+        return base_dict
     
     def get_tuple(self) -> Tuple[str, str, Dict[str, Any]]:
         """Retorna tupla compatível com NetworkX"""
-        return (
-            self.source_node_id,
-            self.target_node_id,
-            {
-                'id': self.id,
-                'edge_type': self.edge_type.value,
-                'weight': self.weight,
-                'created_at': self.created_at,
-                **self.metadata
-            }
-        )
+        attrs = {
+            'id': self.id,
+            'edge_type': self.edge_type.value,
+            'weight': self.weight,
+        }
+        if hasattr(self, 'created_at'):
+            attrs['created_at'] = self.created_at
+        if hasattr(self, 'metadata'):
+            attrs.update(self.metadata)
+        
+        return (self.source_node_id, self.target_node_id, attrs)
 
 
 @dataclass
@@ -84,10 +86,14 @@ class SimilarityEdge(BaseEdge):
     Aresta de similaridade semântica entre nós
     Baseada na similaridade de cossenos entre embeddings
     """
+    # Campos obrigatórios primeiro
     similarity_type: SimilarityType
     cosine_score: float
+    
+    # Campos opcionais depois
     embedding_model: Optional[str] = None
     confidence: Optional[float] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         self.edge_type = EdgeType.SIMILARITY
@@ -116,6 +122,8 @@ class SimilarityEdge(BaseEdge):
             id=f"sim_doc_{doc1_id}_{doc2_id}",
             source_node_id=doc1_id,
             target_node_id=doc2_id,
+            edge_type=EdgeType.SIMILARITY,
+            weight=cosine_score,
             similarity_type=SimilarityType.DOCUMENT_SEMANTIC,
             cosine_score=cosine_score,
             embedding_model=embedding_model,
@@ -131,6 +139,8 @@ class SimilarityEdge(BaseEdge):
             id=f"sim_sec_{sec1_id}_{sec2_id}",
             source_node_id=sec1_id,
             target_node_id=sec2_id,
+            edge_type=EdgeType.SIMILARITY,
+            weight=cosine_score,
             similarity_type=SimilarityType.SECTION_CONTENT,
             cosine_score=cosine_score,
             embedding_model=embedding_model
@@ -143,11 +153,15 @@ class RelevanceEdge(BaseEdge):
     Aresta de relevância entre documento e conceito
     Baseada no score TF-IDF do conceito no documento
     """
+    # Campos obrigatórios
     tfidf_score: float
     term_frequency: int
     document_frequency: int
     inverse_document_frequency: float
     total_documents: int
+    
+    # Campos opcionais
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         self.edge_type = EdgeType.RELEVANCE
@@ -179,6 +193,8 @@ class RelevanceEdge(BaseEdge):
             id=f"rel_{doc_id}_{concept_id}",
             source_node_id=doc_id,
             target_node_id=concept_id,
+            edge_type=EdgeType.RELEVANCE,
+            weight=tfidf_score,
             tfidf_score=tfidf_score,
             term_frequency=term_frequency,
             document_frequency=document_frequency,
@@ -193,12 +209,16 @@ class CooccurrenceEdge(BaseEdge):
     Aresta de co-ocorrência entre conceitos
     Baseada no Pointwise Mutual Information (PMI)
     """
+    # Campos obrigatórios
     pmi_score: float
     joint_frequency: int
     concept1_frequency: int
     concept2_frequency: int
     total_windows: int
     window_size: int
+    
+    # Campos opcionais
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         self.edge_type = EdgeType.COOCCURRENCE
@@ -232,6 +252,8 @@ class CooccurrenceEdge(BaseEdge):
             id=f"cooc_{concept1_id}_{concept2_id}",
             source_node_id=concept1_id,
             target_node_id=concept2_id,
+            edge_type=EdgeType.COOCCURRENCE,
+            weight=pmi_score,
             pmi_score=pmi_score,
             joint_frequency=joint_frequency,
             concept1_frequency=concept1_frequency,
@@ -247,8 +269,12 @@ class HierarchicalEdge(BaseEdge):
     Aresta hierárquica estrutural
     Conecta elementos em hierarquia (Doc->Seção, Seção->Entidade)
     """
-    hierarchy_type: str  # "document_section", "section_entity", etc.
-    order: Optional[int] = None  # Ordem na hierarquia
+    # Campos obrigatórios
+    hierarchy_type: str
+    
+    # Campos opcionais
+    order: Optional[int] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         self.edge_type = EdgeType.HIERARCHICAL
@@ -269,6 +295,8 @@ class HierarchicalEdge(BaseEdge):
             id=f"hier_doc_sec_{doc_id}_{section_id}",
             source_node_id=doc_id,
             target_node_id=section_id,
+            edge_type=EdgeType.HIERARCHICAL,
+            weight=1.0,
             hierarchy_type="document_section",
             order=order
         )
@@ -280,6 +308,8 @@ class HierarchicalEdge(BaseEdge):
             id=f"hier_sec_ent_{section_id}_{entity_id}",
             source_node_id=section_id,
             target_node_id=entity_id,
+            edge_type=EdgeType.HIERARCHICAL,
+            weight=1.0,
             hierarchy_type="section_entity"
         )
     
@@ -290,213 +320,10 @@ class HierarchicalEdge(BaseEdge):
             id=f"hier_doc_ent_{doc_id}_{entity_id}",
             source_node_id=doc_id,
             target_node_id=entity_id,
+            edge_type=EdgeType.HIERARCHICAL,
+            weight=1.0,
             hierarchy_type="document_entity"
         )
-
-
-# Classes auxiliares para estatísticas e análise
-
-@dataclass
-class EdgeStatistics:
-    """Estatísticas de arestas para análise da qualidade do grafo"""
-    edge_type: EdgeType
-    total_edges: int
-    min_weight: float
-    max_weight: float
-    mean_weight: float
-    std_weight: float
-    weight_distribution: Dict[str, int] = field(default_factory=dict)
-    
-    def add_edge_weight(self, weight: float):
-        """Adiciona peso para atualizar estatísticas"""
-        # Implementação simplificada - em produção usar biblioteca estatística
-        pass
-
-
-# Funções auxiliares para criação e validação de arestas
-
-def create_similarity_matrix_edges(embeddings_dict: Dict[str, np.ndarray],
-                                 threshold: float = 0.3,
-                                 similarity_type: SimilarityType = SimilarityType.DOCUMENT_SEMANTIC,
-                                 max_edges_per_node: int = 50) -> List[SimilarityEdge]:
-    """
-    Cria arestas de similaridade a partir de uma matriz de embeddings
-    
-    Args:
-        embeddings_dict: Dicionário {node_id: embedding_vector}
-        threshold: Threshold mínimo de similaridade
-        similarity_type: Tipo de similaridade
-        max_edges_per_node: Máximo de arestas por nó (para eficiência)
-    
-    Returns:
-        Lista de SimilarityEdge
-    """
-    from sklearn.metrics.pairwise import cosine_similarity
-    
-    edges = []
-    node_ids = list(embeddings_dict.keys())
-    embeddings_matrix = np.array([embeddings_dict[node_id] for node_id in node_ids])
-    
-    # Calcula matriz de similaridade
-    similarity_matrix = cosine_similarity(embeddings_matrix)
-    
-    for i, node1_id in enumerate(node_ids):
-        # Pega similaridades para este nó
-        similarities = [(j, similarity_matrix[i][j]) for j in range(len(node_ids)) 
-                       if i != j and similarity_matrix[i][j] >= threshold]
-        
-        # Ordena por similaridade decrescente e limita
-        similarities.sort(key=lambda x: x[1], reverse=True)
-        similarities = similarities[:max_edges_per_node]
-        
-        for j, sim_score in similarities:
-            node2_id = node_ids[j]
-            
-            # Evita arestas duplicadas (apenas node1 < node2)
-            if node1_id < node2_id:
-                edge = SimilarityEdge(
-                    id=f"sim_{similarity_type.value}_{node1_id}_{node2_id}",
-                    source_node_id=node1_id,
-                    target_node_id=node2_id,
-                    similarity_type=similarity_type,
-                    cosine_score=sim_score
-                )
-                edges.append(edge)
-    
-    return edges
-
-
-def create_tfidf_relevance_edges(tfidf_matrix: np.ndarray,
-                                doc_ids: List[str],
-                                concept_ids: List[str],
-                                threshold: float = 0.1) -> List[RelevanceEdge]:
-    """
-    Cria arestas de relevância a partir de uma matriz TF-IDF
-    
-    Args:
-        tfidf_matrix: Matriz TF-IDF (docs x conceitos)
-        doc_ids: Lista de IDs dos documentos
-        concept_ids: Lista de IDs dos conceitos
-        threshold: Threshold mínimo de relevância
-    
-    Returns:
-        Lista de RelevanceEdge
-    """
-    edges = []
-    
-    for i, doc_id in enumerate(doc_ids):
-        for j, concept_id in enumerate(concept_ids):
-            tfidf_score = tfidf_matrix[i, j]
-            
-            if tfidf_score >= threshold:
-                edge = RelevanceEdge(
-                    id=f"rel_{doc_id}_{concept_id}",
-                    source_node_id=doc_id,
-                    target_node_id=concept_id,
-                    tfidf_score=tfidf_score,
-                    term_frequency=0,  # Será preenchido pelo calculador TF-IDF
-                    document_frequency=0,
-                    inverse_document_frequency=0.0,
-                    total_documents=len(doc_ids)
-                )
-                edges.append(edge)
-    
-    return edges
-
-
-def create_pmi_cooccurrence_edges(pmi_matrix: np.ndarray,
-                                concept_ids: List[str],
-                                threshold: float = 0.5) -> List[CooccurrenceEdge]:
-    """
-    Cria arestas de co-ocorrência a partir de uma matriz PMI
-    
-    Args:
-        pmi_matrix: Matriz PMI simétrica (conceitos x conceitos)
-        concept_ids: Lista de IDs dos conceitos
-        threshold: Threshold mínimo de PMI
-    
-    Returns:
-        Lista de CooccurrenceEdge
-    """
-    edges = []
-    
-    for i, concept1_id in enumerate(concept_ids):
-        for j, concept2_id in enumerate(concept_ids):
-            if i < j:  # Evita duplicatas (matriz simétrica)
-                pmi_score = pmi_matrix[i, j]
-                
-                if pmi_score >= threshold:
-                    edge = CooccurrenceEdge(
-                        id=f"cooc_{concept1_id}_{concept2_id}",
-                        source_node_id=concept1_id,
-                        target_node_id=concept2_id,
-                        pmi_score=pmi_score,
-                        joint_frequency=0,  # Será preenchido pelo calculador PMI
-                        concept1_frequency=0,
-                        concept2_frequency=0,
-                        total_windows=0,
-                        window_size=10
-                    )
-                    edges.append(edge)
-    
-    return edges
-
-
-def validate_edge_weights(edges: List[BaseEdge]) -> Dict[str, Any]:
-    """
-    Valida e analisa os pesos das arestas
-    
-    Args:
-        edges: Lista de arestas para validar
-    
-    Returns:
-        Dicionário com estatísticas de validação
-    """
-    stats = {}
-    
-    # Agrupa por tipo de aresta
-    edges_by_type = {}
-    for edge in edges:
-        edge_type = edge.edge_type.value
-        if edge_type not in edges_by_type:
-            edges_by_type[edge_type] = []
-        edges_by_type[edge_type].append(edge.weight)
-    
-    # Calcula estatísticas por tipo
-    for edge_type, weights in edges_by_type.items():
-        weights_array = np.array(weights)
-        stats[edge_type] = {
-            'count': len(weights),
-            'min': float(np.min(weights_array)),
-            'max': float(np.max(weights_array)),
-            'mean': float(np.mean(weights_array)),
-            'std': float(np.std(weights_array)),
-            'median': float(np.median(weights_array))
-        }
-    
-    return stats
-
-
-def filter_edges_by_weight(edges: List[BaseEdge], 
-                          min_weights: Dict[EdgeType, float]) -> List[BaseEdge]:
-    """
-    Filtra arestas por peso mínimo por tipo
-    
-    Args:
-        edges: Lista de arestas
-        min_weights: Dicionário {EdgeType: peso_minimo}
-    
-    Returns:
-        Lista de arestas filtradas
-    """
-    filtered_edges = []
-    
-    for edge in edges:
-        min_weight = min_weights.get(edge.edge_type, 0.0)
-        if edge.weight >= min_weight:
-            filtered_edges.append(edge)
-    
-    return filtered_edges
 
 
 # Configurações padrão para diferentes tipos de arestas
@@ -515,5 +342,5 @@ MAX_EDGES_PER_NODE = {
     EdgeType.SIMILARITY: 50,
     EdgeType.RELEVANCE: 20,
     EdgeType.COOCCURRENCE: 30,
-    EdgeType.HIERARCHICAL: 100  # Sem limite prático
+    EdgeType.HIERARCHICAL: 100
 }

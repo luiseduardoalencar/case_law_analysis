@@ -16,7 +16,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # Imports dos módulos do grafo
 from .preprocessing import preprocess_jurisprudencias, PreprocessingStats
-from ..models.nodes import DocumentNode, SectionNode, EntityNode, ConceptNode
+from ..models.nodes import DocumentNode, NodeType, SectionNode, EntityNode, ConceptNode
 from ..models.edges import SimilarityEdge, RelevanceEdge, CooccurrenceEdge, HierarchicalEdge
 from ..models.graph_schema import GraphConfiguration, GraphStatistics, GraphSchema
 from ..extractors.section_extractor import SectionExtractor
@@ -340,6 +340,8 @@ class GraphPipeline:
                         # Nova entidade
                         entity_node = EntityNode(
                             id=f"ent_{entity_data['tipo']}_{hash(nome_norm) % 10000:04d}",
+                            node_type=NodeType.ENTITY,  # ✅ ADICIONE
+                            label=nome_norm,
                             entity_type=entity_data['tipo'],
                             nome_original=entity_data['nome_original'],
                             nome_normalizado=nome_norm,
@@ -381,6 +383,8 @@ class GraphPipeline:
             for concept_info in concepts_data:
                 concept_node = ConceptNode(
                     id=f"con_{hash(concept_info['termo']) % 10000:04d}",
+                    node_type=NodeType.CONCEPT,  # ✅ ADICIONE
+                    label=concept_info['termo'],
                     termo_conceito=concept_info['termo'],
                     categoria_juridica=concept_info.get('categoria'),
                     frequencia_global=concept_info['frequencia']
@@ -394,8 +398,8 @@ class GraphPipeline:
             return []
     
     def _generate_embeddings(self, documents: List[DocumentNode], 
-                           sections: List[SectionNode], 
-                           load_cache: bool = True):
+                            sections: List[SectionNode], 
+                            load_cache: bool = True):
         """Gera embeddings para documentos e seções"""
         
         cache_file = Path("data/graph/embeddings/embeddings_cache.pkl")
@@ -433,10 +437,11 @@ class GraphPipeline:
         # Gera embeddings
         logger.info(f"🔄 Gerando {len(texts_to_vectorize)} novos embeddings...")
         
-        embeddings = self.text_vectorizer.vectorize_texts(texts_to_vectorize)
+        # ✅ CORREÇÃO: Armazena o resultado completo
+        result = self.text_vectorizer.vectorize_texts(texts_to_vectorize)
         
-        # Atualiza cache
-        for node_id, embedding in zip(node_ids, embeddings):
+        # ✅ CORREÇÃO: Acessa o atributo 'embeddings' do VectorizationResult
+        for node_id, embedding in zip(node_ids, result.embeddings):
             self.embeddings_cache[node_id] = embedding
         
         # Salva cache atualizado
@@ -604,7 +609,7 @@ class GraphPipeline:
             logger.error(f"Erro ao criar arestas de relevância: {e}")
     
     def _create_cooccurrence_edges(self, concepts: List[ConceptNode], 
-                                  documents: List[DocumentNode]):
+                                documents: List[DocumentNode]):
         """Cria arestas de co-ocorrência entre conceitos usando PMI"""
         
         if len(concepts) < 2 or not documents:
@@ -618,6 +623,50 @@ class GraphPipeline:
             # Calcula PMI
             pmi_scores = self.pmi_calculator.calculate_pmi_matrix(texts, terms)
             
+            # Calcula frequências dos conceitos no corpus
+            from collections import Counter
+            concept_frequencies = {}
+            
+            for i, concept in enumerate(concepts):
+                term = concept.termo_conceito.lower()
+                freq = 0
+                
+                # Conta ocorrências em todos os textos
+                for text in texts:
+                    text_lower = text.lower()
+                    freq += text_lower.count(term)
+                
+                concept_frequencies[concept.id] = freq
+            
+            # Calcula co-ocorrências (joint frequency)
+            # Para cada par de conceitos, conta quantas vezes aparecem juntos
+            joint_frequencies = {}
+            window_size = 10  # Tamanho da janela para considerar co-ocorrência
+            
+            for i, concept1 in enumerate(concepts):
+                for j, concept2 in enumerate(concepts):
+                    if i < j:
+                        term1 = concept1.termo_conceito.lower()
+                        term2 = concept2.termo_conceito.lower()
+                        joint_freq = 0
+                        
+                        # Conta co-ocorrências em janelas de texto
+                        for text in texts:
+                            text_lower = text.lower()
+                            words = text_lower.split()
+                            
+                            # Procura co-ocorrências dentro da janela
+                            for k in range(len(words)):
+                                window = ' '.join(words[k:k+window_size])
+                                if term1 in window and term2 in window:
+                                    joint_freq += 1
+                        
+                        joint_frequencies[(i, j)] = joint_freq
+            
+            # Total de janelas = número aproximado de janelas em todos os textos
+            total_words = sum(len(text.split()) for text in texts)
+            total_windows = max(1, total_words // window_size)  # Evita divisão por zero
+            
             edges_created = 0
             threshold = self.config.pmi_threshold
             
@@ -625,8 +674,21 @@ class GraphPipeline:
             for i, concept1 in enumerate(concepts):
                 for j, concept2 in enumerate(concepts):
                     if i < j and pmi_scores[i][j] >= threshold:
+                        # Obtém frequências dos conceitos
+                        freq1 = concept_frequencies.get(concept1.id, 0)
+                        freq2 = concept_frequencies.get(concept2.id, 0)
+                        joint_freq = joint_frequencies.get((i, j), 0)
+                        
+                        # ✅ TODOS OS PARÂMETROS NA ORDEM CORRETA
                         edge = CooccurrenceEdge.create_concept_cooccurrence(
-                            concept1.id, concept2.id, pmi_scores[i][j], 0, 0
+                            concept1.id,           # concept1_id
+                            concept2.id,           # concept2_id
+                            pmi_scores[i][j],      # pmi_score
+                            joint_freq,            # joint_frequency ⭐ ESTE ESTAVA FALTANDO!
+                            freq1,                 # concept1_frequency
+                            freq2,                 # concept2_frequency
+                            total_windows,         # total_windows
+                            window_size            # window_size (opcional, padrão=10)
                         )
                         
                         self.graph.add_edge(
@@ -639,6 +701,8 @@ class GraphPipeline:
             
         except Exception as e:
             logger.error(f"Erro ao criar arestas de co-ocorrência: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _save_graph(self, base_path: str, result: GraphConstructionResult) -> List[str]:
         """Salva o grafo em múltiplos formatos"""

@@ -236,13 +236,17 @@ class ConceptExtractor:
         ]
     
     def extract_concepts_from_corpus(self, texts: List[str], 
-                                   document_ids: List[str] = None) -> List[Dict[str, Any]]:
+                                document_ids: List[str] = None,
+                                max_candidates: int = 500,
+                                batch_size: int = 100) -> List[Dict[str, Any]]:
         """
-        Extrai conceitos de um corpus de documentos
+        Extrai conceitos de um corpus de documentos (VERSÃO OTIMIZADA)
         
         Args:
             texts: Lista de textos dos documentos
             document_ids: IDs dos documentos (opcional)
+            max_candidates: Máximo de candidatos a descobrir (padrão: 200)
+            batch_size: Tamanho do lote para processamento (padrão: 100)
             
         Returns:
             Lista de dicionários com dados dos conceitos
@@ -258,19 +262,31 @@ class ConceptExtractor:
         self.stats['documents_analyzed'] = len(texts)
         
         logger.info(f"🔍 Extraindo conceitos de {len(texts)} documentos...")
+        logger.info(f"📦 Usando batches de {batch_size} documentos")
+        logger.info(f"🎯 Limite de {max_candidates} candidatos descobertos")
         
         try:
-            # 1. Identifica conceitos predefinidos
-            predefined_concepts = self._find_predefined_concepts(texts, document_ids)
+            # 1. Identifica conceitos predefinidos (RÁPIDO)
+            logger.info("🔎 Buscando conceitos predefinidos...")
+            predefined_concepts = self._find_predefined_concepts_optimized(
+                texts, document_ids, batch_size
+            )
+            logger.info(f"✅ {len(predefined_concepts)} conceitos predefinidos encontrados")
             
-            # 2. Descobre novos conceitos via TF-IDF  
-            discovered_concepts = self._discover_new_concepts(texts, document_ids)
+            # 2. Descobre novos conceitos via TF-IDF (OTIMIZADO)
+            logger.info("🔬 Descobrindo novos conceitos...")
+            discovered_concepts = self._discover_new_concepts_optimized(
+                texts, document_ids, max_candidates, batch_size
+            )
+            logger.info(f"✅ {len(discovered_concepts)} novos conceitos descobertos")
             
             # 3. Combina e filtra conceitos
+            logger.info("🔗 Combinando e filtrando conceitos...")
             all_concepts = predefined_concepts + discovered_concepts
             final_concepts = self._filter_and_rank_concepts(all_concepts, texts)
             
             # 4. Categoriza conceitos
+            logger.info("🏷️  Categorizando conceitos...")
             categorized_concepts = self._categorize_concepts(final_concepts)
             
             # Atualiza estatísticas
@@ -278,12 +294,14 @@ class ConceptExtractor:
             self.stats['predefined_concepts_found'] = len(predefined_concepts)
             self.stats['discovered_concepts'] = len(discovered_concepts)
             
-            logger.info(f"✅ {len(final_concepts)} conceitos extraídos")
+            logger.info(f"✅ {len(final_concepts)} conceitos extraídos TOTAL")
             
             return categorized_concepts
             
         except Exception as e:
             logger.error(f"❌ Erro na extração de conceitos: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _find_predefined_concepts(self, texts: List[str], 
@@ -738,6 +756,213 @@ class ConceptExtractor:
         
         return normalized
     
+    def _find_predefined_concepts_optimized(self, texts: List[str], 
+                                           document_ids: List[str],
+                                           batch_size: int = 100) -> List[ConceptMatch]:
+        """Encontra conceitos predefinidos (OTIMIZADO com batching)"""
+        
+        concepts_found = {}
+        total_batches = (len(texts) + batch_size - 1) // batch_size
+        
+        logger.info(f"   Processando {total_batches} lotes...")
+        
+        for concept_term in self.predefined_concepts:
+            pattern = self._create_concept_pattern(concept_term)
+            
+            total_freq = 0
+            doc_freq = 0
+            contexts = []
+            
+            # PROCESSA EM LOTES
+            for batch_idx in range(0, len(texts), batch_size):
+                batch_texts = texts[batch_idx:batch_idx + batch_size]
+                batch_ids = document_ids[batch_idx:batch_idx + batch_size]
+                
+                if batch_idx % (batch_size * 5) == 0:
+                    logger.debug(f"   Lote {batch_idx//batch_size + 1}/{total_batches}")
+                
+                for text, doc_id in zip(batch_texts, batch_ids):
+                    matches = list(re.finditer(pattern, text, re.IGNORECASE))
+                    
+                    if matches:
+                        doc_freq += 1
+                        total_freq += len(matches)
+                        
+                        for match in matches[:1]:
+                            if len(contexts) < 3:
+                                context = self._extract_context(text, match.start(), match.end())
+                                if context:
+                                    contexts.append(context)
+            
+            if total_freq > 0:
+                concepts_found[concept_term] = ConceptMatch(
+                    term=concept_term,
+                    normalized_term=self._normalize_concept_term(concept_term),
+                    frequency=total_freq,
+                    document_frequency=doc_freq,
+                    tfidf_score=0.0,
+                    contexts=contexts,
+                    confidence=1.0
+                )
+        
+        return list(concepts_found.values())
+    
+    def _discover_new_concepts_optimized(self, texts: List[str], 
+                                        document_ids: List[str],
+                                        max_candidates: int = 200,
+                                        batch_size: int = 100) -> List[ConceptMatch]:
+        """Descobre novos conceitos (VERSÃO OTIMIZADA)"""
+        
+        logger.info(f"   Extraindo candidatos (máx: {max_candidates})...")
+        
+        # AMOSTRAGEM: Usa apenas uma amostra dos textos
+        sample_size = min(len(texts), 1500)
+        if len(texts) > sample_size:
+            import random
+            sample_indices = random.sample(range(len(texts)), sample_size)
+            sample_texts = [texts[i] for i in sample_indices]
+            logger.info(f"   Usando amostra de {sample_size} documentos")
+        else:
+            sample_texts = texts
+        
+        processed_texts = [self._preprocess_text_for_tfidf(text) for text in sample_texts]
+        
+        concept_candidates = self._extract_concept_candidates_fast(
+            processed_texts, max_candidates
+        )
+        
+        if not concept_candidates:
+            logger.warning("   Nenhum candidato encontrado")
+            return []
+        
+        logger.info(f"   {len(concept_candidates)} candidatos extraídos")
+        logger.info(f"   Calculando TF-IDF...")
+        
+        tfidf_scores = self._calculate_tfidf_for_candidates_fast(
+            processed_texts, concept_candidates
+        )
+        
+        discovered = []
+        min_tfidf = 0.12
+        min_doc_freq = 2
+        
+        for candidate, (freq, doc_freq, avg_tfidf) in tfidf_scores.items():
+            if avg_tfidf >= min_tfidf and doc_freq >= min_doc_freq:
+                contexts = []
+                
+                confidence = self._calculate_concept_confidence(
+                    candidate, freq, doc_freq, avg_tfidf, len(sample_texts)
+                )
+                
+                if confidence >= 0.6:
+                    discovered.append(ConceptMatch(
+                        term=candidate,
+                        normalized_term=self._normalize_concept_term(candidate),
+                        frequency=freq,
+                        document_frequency=doc_freq,
+                        tfidf_score=avg_tfidf,
+                        contexts=contexts,
+                        confidence=confidence
+                    ))
+        
+        discovered.sort(key=lambda x: x.tfidf_score, reverse=True)
+        return discovered[:75]
+    
+    def _extract_concept_candidates_fast(self, texts: List[str], 
+                                         max_candidates: int = 200) -> Set[str]:
+        """Extrai candidatos de forma RÁPIDA (OTIMIZADO)"""
+        
+        candidates = set()
+        candidate_freq = Counter()
+        
+        for text in texts:
+            words = text.split()
+            
+            # Bigramas
+            for i in range(len(words) - 1):
+                if len(candidates) >= max_candidates * 2:
+                    break
+                
+                bigram = ' '.join(words[i:i+2])
+                if self._is_valid_concept_candidate_fast(bigram):
+                    candidates.add(bigram)
+                    candidate_freq[bigram] += 1
+            
+            # Trigramas
+            for i in range(len(words) - 2):
+                if len(candidates) >= max_candidates * 3:
+                    break
+                
+                trigram = ' '.join(words[i:i+3])
+                if self._is_valid_concept_candidate_fast(trigram):
+                    candidates.add(trigram)
+                    candidate_freq[trigram] += 1
+            
+            # Quadrigramas (4 palavras)
+            for i in range(len(words) - 3):
+                if len(candidates) >= max_candidates * 2:
+                    break
+                
+                quadrigram = ' '.join(words[i:i+4])
+                if self._is_valid_concept_candidate_fast(quadrigram):
+                    candidates.add(quadrigram)
+                    candidate_freq[quadrigram] += 1
+        
+        top_candidates = [
+            cand for cand, freq in candidate_freq.most_common(max_candidates)
+        ]
+        
+        logger.info(f"   {len(top_candidates)}/{len(candidates)} candidatos selecionados")
+        return set(top_candidates)
+    
+    def _is_valid_concept_candidate_fast(self, candidate: str) -> bool:
+        """Validação RÁPIDA de candidato"""
+        
+        if len(candidate) < 6 or len(candidate) > 60:
+            return False
+        
+        words = candidate.split()
+        if len(words) < 2 or len(words) > 4:
+            return False
+        
+        if sum(1 for c in candidate if c.isdigit()) > 4:
+            return False
+        
+        if all(word in self.stopwords for word in words):
+            return False
+        
+        return True
+    
+    def _calculate_tfidf_for_candidates_fast(self, texts: List[str], 
+                                            candidates: Set[str]) -> Dict[str, Tuple[int, int, float]]:
+        """Calcula TF-IDF RÁPIDO (OTIMIZADO)"""
+        
+        if not candidates:
+            return {}
+        
+        concept_stats = {}
+        total_words = sum(len(text.split()) for text in texts)
+        
+        for candidate in candidates:
+            total_freq = 0
+            doc_freq = 0
+            
+            for text in texts:
+                count = text.count(candidate)
+                
+                if count > 0:
+                    doc_freq += 1
+                    total_freq += count
+            
+            if doc_freq > 0:
+                tf = total_freq / total_words
+                idf = np.log(len(texts) / doc_freq)
+                avg_tfidf = tf * idf
+                
+                concept_stats[candidate] = (total_freq, doc_freq, avg_tfidf)
+        
+        return concept_stats
+
     def get_extraction_stats(self) -> Dict[str, Any]:
         """Retorna estatísticas da extração"""
         

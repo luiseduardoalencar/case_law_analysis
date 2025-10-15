@@ -6,11 +6,11 @@ Adaptado para lidar com inconsistências nos documentos do TJPI
 """
 
 import re
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple , Any
 from dataclasses import dataclass
 from loguru import logger
 
-from ..models.nodes import DocumentNode, SectionNode, SectionType
+from ..models.nodes import DocumentNode, SectionNode, SectionType, NodeType
 
 
 @dataclass
@@ -195,6 +195,8 @@ class SectionExtractor:
         for i, section_data in enumerate(found_sections):
             section_node = SectionNode(
                 id=f"sec_{document_id}_{section_data['type'].value}_{i}",
+                node_type=NodeType.SECTION,  # ✅ ADICIONE
+                label=f"{section_data['type'].value.title()} - {document_id}",
                 parent_document_id=document_id,
                 section_type=section_data['type'],
                 conteudo_texto=section_data['content'],
@@ -408,6 +410,8 @@ class SectionExtractor:
         
         return SectionNode(
             id=f"sec_{document_id}_outros_0",
+            node_type=NodeType.SECTION,  # ✅ ADICIONE
+            label=f"Outros - {document_id}",
             parent_document_id=document_id,
             section_type=SectionType.OUTROS,
             conteudo_texto=text,

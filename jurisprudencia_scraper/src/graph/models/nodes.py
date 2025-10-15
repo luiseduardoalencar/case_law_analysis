@@ -46,18 +46,21 @@ class BaseNode:
     id: str
     node_type: NodeType
     label: str
-    created_at: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         """Converte o nó para dicionário"""
-        return {
+        base_dict = {
             'id': self.id,
             'node_type': self.node_type.value,
             'label': self.label,
-            'created_at': self.created_at.isoformat(),
-            'metadata': self.metadata
         }
+        # Adiciona created_at se existir
+        if hasattr(self, 'created_at'):
+            base_dict['created_at'] = self.created_at.isoformat()
+        # Adiciona metadata se existir na subclasse
+        if hasattr(self, 'metadata'):
+            base_dict['metadata'] = self.metadata
+        return base_dict
 
 
 @dataclass
@@ -66,9 +69,11 @@ class DocumentNode(BaseNode):
     Nó representando um documento jurídico completo
     Mapeado da tabela 'processos' + 'processos_metadados'
     """
+    # ✅ CAMPOS OBRIGATÓRIOS PRIMEIRO (sem valor padrão)
     numero_processo: str
     url_original: str
     
+    # ✅ CAMPOS OPCIONAIS DEPOIS (com valor padrão)
     # Metadados do processo (vindos de processos_metadados)
     orgao_julgador: Optional[str] = None
     orgao_julgador_colegiado: Optional[str] = None
@@ -100,6 +105,9 @@ class DocumentNode(BaseNode):
     entidades_ids: List[str] = field(default_factory=list)
     conceitos_ids: List[str] = field(default_factory=list)
     
+    # Metadata (adicionado aqui para evitar conflito de herança)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
     def __post_init__(self):
         if not self.id:
             self.id = f"doc_{self.numero_processo}"
@@ -129,8 +137,11 @@ class SectionNode(BaseNode):
     Nó representando uma seção de um documento jurídico
     Mapeado da tabela 'processos_conteudo'
     """
+    # ✅ CAMPOS OBRIGATÓRIOS PRIMEIRO
     parent_document_id: str
     section_type: SectionType
+    
+    # ✅ CAMPOS OPCIONAIS DEPOIS
     conteudo_html: Optional[str] = None
     conteudo_texto: Optional[str] = None
     conteudo_limpo: Optional[str] = None
@@ -147,6 +158,9 @@ class SectionNode(BaseNode):
     # Relacionamentos
     entidades_ids: List[str] = field(default_factory=list)
     conceitos_ids: List[str] = field(default_factory=list)
+    
+    # Metadata
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         if not self.id:
@@ -172,9 +186,12 @@ class EntityNode(BaseNode):
     Nó representando uma entidade nomeada extraída dos documentos
     Extraído via NER dos textos jurídicos
     """
+    # ✅ CAMPOS OBRIGATÓRIOS PRIMEIRO
     entity_type: EntityType
     nome_original: str
     nome_normalizado: str
+    
+    # ✅ CAMPOS OPCIONAIS DEPOIS
     contexto: Optional[str] = None
     
     # Frequência e estatísticas
@@ -188,6 +205,9 @@ class EntityNode(BaseNode):
     # Relacionamentos
     documentos_ids: List[str] = field(default_factory=list)
     secoes_ids: List[str] = field(default_factory=list)
+    
+    # Metadata
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         if not self.id:
@@ -224,7 +244,10 @@ class ConceptNode(BaseNode):
     Nó representando um conceito jurídico extraído dos documentos
     Baseado em termos-chave do domínio jurídico
     """
+    # ✅ CAMPOS OBRIGATÓRIOS PRIMEIRO
     termo_conceito: str
+    
+    # ✅ CAMPOS OPCIONAIS DEPOIS
     categoria_juridica: Optional[str] = None
     definicao: Optional[str] = None
     
@@ -243,6 +266,9 @@ class ConceptNode(BaseNode):
     # Métricas de relevância (calculadas posteriormente)
     tfidf_scores: Dict[str, float] = field(default_factory=dict)  # doc_id -> score
     pmi_scores: Dict[str, float] = field(default_factory=dict)    # concept_id -> score
+    
+    # Metadata
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         if not self.id:
@@ -301,12 +327,12 @@ def create_document_node_from_db_row(processo_row, metadados_row=None) -> Docume
     """
     node = DocumentNode(
         id=f"doc_{processo_row['numero_processo']}",
+        node_type=NodeType.DOCUMENT,
+        label=f"Processo {processo_row['numero_processo']}",
         numero_processo=processo_row['numero_processo'],
         url_original=processo_row['url_original'],
-        label=f"Processo {processo_row['numero_processo']}",
         conteudo_completo=processo_row.get('html_completo'),
-        hash_documento=processo_row.get('hash_documento'),
-        created_at=processo_row.get('created_at', datetime.now())
+        hash_documento=processo_row.get('hash_documento')
     )
     
     # Adiciona metadados se disponíveis
@@ -352,14 +378,14 @@ def create_section_node_from_db_row(conteudo_row, parent_doc_id: str) -> Section
     
     return SectionNode(
         id=f"sec_{parent_doc_id}_{tipo_secao.value}_{conteudo_row.get('ordem', 0)}",
+        node_type=NodeType.SECTION,
+        label=f"{tipo_secao.value.title()} - {parent_doc_id}",
         parent_document_id=parent_doc_id,
         section_type=tipo_secao,
-        label=f"{tipo_secao.value.title()} - {parent_doc_id}",
         conteudo_html=conteudo_row.get('conteudo_html'),
         conteudo_texto=conteudo_row.get('conteudo_texto'),
         conteudo_limpo=conteudo_row.get('conteudo_limpo'),
-        ordem=conteudo_row.get('ordem'),
-        created_at=conteudo_row.get('created_at', datetime.now())
+        ordem=conteudo_row.get('ordem')
     )
 
 
